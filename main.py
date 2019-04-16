@@ -78,6 +78,7 @@ if __name__ == '__main__':
     for epoch in range(epochs):
         correct_cnt, ave_loss = 0, 0
         total_cnt = 0
+        model.train()
         for batch_idx, (x, target) in enumerate(train_loader):
             x = x.to(device)
             target = target.to(device)
@@ -95,7 +96,7 @@ if __name__ == '__main__':
             ave_loss = ave_loss * 0.9 + loss.item() * 0.1
             loss.backward()
             optimizer.step()
-            writer.add_scalar('train/loss', ave_loss, epoch*len(train_loader)+batch_idx)
+            writer.add_scalar('train/loss', loss, epoch*len(train_loader)+batch_idx)
             writer.add_scalar('train/acc', acc_train, epoch*len(train_loader)+batch_idx)
 
             if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == len(train_loader):
@@ -112,24 +113,28 @@ if __name__ == '__main__':
         correct_cnt, ave_loss = 0, 0
         total_cnt = 0
         acc_val = []
-        for batch_idx, (x, target) in enumerate(test_loader):
-            x = x.to(device)
-            target = target.to(device)
-            # x, target = Variable(x, volatile=True), Variable(target, volatile=True)
-            out = model(x)
-            loss = criterion(out, target)
-            _, pred_label = torch.max(out, 1)
-            total_cnt = x.size(0)
-            correct_cnt = (pred_label == target).sum()
-            acc = correct_cnt.float() / total_cnt
-            acc_val.append(acc)
-            # smooth average
-            ave_loss = ave_loss * 0.9 + loss.item() * 0.1
-
-            if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == len(test_loader):
-                print('==>>> epoch: {}, batch index: {}, test loss: {:.6f}, acc: {:.3f}'.format(
-                    epoch, batch_idx + 1, ave_loss, acc))
-        writer.add_scalar('test/loss', ave_loss, epoch)
+        loss_val = []
+        
+        with torch.no_grad():
+            model.eval()
+            for batch_idx, (x, target) in enumerate(test_loader):
+                x = x.to(device)
+                target = target.to(device)
+                # x, target = Variable(x, volatile=True), Variable(target, volatile=True)
+                out = model(x)
+                loss = criterion(out, target)
+                loss_val.append(loss.item())
+                _, pred_label = torch.max(out, 1)
+                total_cnt = x.size(0)
+                correct_cnt = (pred_label == target).sum()
+                acc = correct_cnt.float() / total_cnt
+                acc_val.append(acc)
+                # smooth average
+                ave_loss = ave_loss * 0.9 + loss.item() * 0.1
+                if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == len(test_loader):
+                    print('==>>> epoch: {}, batch index: {}, test loss: {:.6f}, acc: {:.3f}'.format(
+                        epoch, batch_idx + 1, ave_loss, acc))
+        writer.add_scalar('test/loss', np.mean(loss_val), epoch)
         writer.add_scalar('test/acc', np.mean(acc_val), epoch)
 
 
