@@ -1,12 +1,12 @@
 from torchvision.datasets import CIFAR10
-from model import LeNet
+from model import LeNet, SqueezeExcitationModule
 import torch
 import numpy as np
 from tensorboardX import SummaryWriter
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 import argparse
 from datetime import datetime
 import os
@@ -16,7 +16,8 @@ from IPython import embed
 def parse_args():
     # srun -p veu -c8 --mem 30G python main.py
     parser = argparse.ArgumentParser()
-    # parser.add_argument("--onehot", action="store_true", help="enables one-hot encoding")
+    parser.add_argument("--se1", action="store_true", default=False, help="enables squeeze and excitation in conv 1")
+    parser.add_argument("--se2", action="store_true", default=False, help="enables squeeze and excitation in conv 2")
     # parser.add_argument("--cuda", action="store_true", help="enables cuda")
     # parser.add_argument("--balance", action="store_true", help="enables balance data")
     # parser.add_argument("--onlytrain", action="store_true", help="enables balance data")
@@ -35,8 +36,7 @@ def parse_args():
 if __name__ == '__main__':
 
     root = './data'
-    # reduction_factor = 16
-    # se_model = SqueezeExcitationModule(base_model, , reduction_factor)
+    reduction_factor = 16
     batch_size = 1024
     epochs = 100
     opt = parse_args()
@@ -45,14 +45,18 @@ if __name__ == '__main__':
         device = "cuda"
     else:
         device = "cpu"
+    print(device)
 
     date = datetime.now().strftime('%y%m%d%H%M%S')
     if opt.nologs:
         writer = SummaryWriter(log_dir=f'logs/nologs/')
     else:
-        writer = SummaryWriter(log_dir=f'logs/balanced_logs_{date}/')
+        if opt.se1 or opt.se2:
+            writer = SummaryWriter(log_dir=f'logs/logs_{opt.se1}_{opt.se2}_{date}/')
+        else:
+            writer = SummaryWriter(log_dir=f'logs/logs_{date}/')
 
-    model = LeNet().to(device)  # N x 3 x 32 x 32
+    model = LeNet(se1=opt.se1, se2=opt.se2).to(device) # N x 3 x 32 x 32
 
     trans = transforms.Compose([transforms.RandomResizedCrop(32), transforms.RandomHorizontalFlip(),
                                 transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
@@ -72,6 +76,7 @@ if __name__ == '__main__':
         batch_size=batch_size,
         shuffle=False)
 
+    # optimizer = Adam(model.parameters())
     optimizer = SGD(model.parameters(), lr=0.1, momentum=0.9)
     criterion = nn.CrossEntropyLoss()
 
@@ -104,7 +109,7 @@ if __name__ == '__main__':
                     epoch, batch_idx + 1, ave_loss, acc_train))
 
         checkpoint = {
-            "state_dict": model.module.state_dict() if device == 'cuda' else model.state_dict(),
+            "state_dict": model.state_dict(),
             "optimizer": optimizer.state_dict(),
         }
         os.makedirs("./weights/{}".format(date), exist_ok=True)
@@ -114,7 +119,7 @@ if __name__ == '__main__':
         total_cnt = 0
         acc_val = []
         loss_val = []
-        
+
         with torch.no_grad():
             model.eval()
             for batch_idx, (x, target) in enumerate(test_loader):
@@ -128,7 +133,7 @@ if __name__ == '__main__':
                 total_cnt = x.size(0)
                 correct_cnt = (pred_label == target).sum()
                 acc = correct_cnt.float() / total_cnt
-                acc_val.append(acc)
+                acc_val.append(acc.cpu().item())
                 # smooth average
                 ave_loss = ave_loss * 0.9 + loss.item() * 0.1
                 if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == len(test_loader):
@@ -136,5 +141,4 @@ if __name__ == '__main__':
                         epoch, batch_idx + 1, ave_loss, acc))
         writer.add_scalar('test/loss', np.mean(loss_val), epoch)
         writer.add_scalar('test/acc', np.mean(acc_val), epoch)
-
 
